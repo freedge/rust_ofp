@@ -37,11 +37,11 @@ pub enum MsgCode {
 /// Common API for message types implementing OpenFlow Message Codes (see `MsgCode` enum).
 pub trait MessageType {
     /// Return the byte-size of a message.
-    fn size_of(&Self) -> usize;
+    fn size_of(_: &Self) -> usize;
     /// Parse a buffer into a message.
     fn parse(buf: &[u8]) -> Self;
     /// Marshal a message into a `u8` buffer.
-    fn marshal(Self, &mut Vec<u8>);
+    fn marshal(_: Self, _: &mut Vec<u8>);
 }
 
 pub struct Mask<T> {
@@ -718,6 +718,51 @@ pub struct SwitchFeatures {
 
 #[repr(packed)]
 struct OfpSwitchFeatures(u64, u32, u8, [u8; 3], u32, u32);
+
+pub struct SwitchConfig {
+    pub flags: u16,
+    pub miss_send_len: u16,
+}
+
+#[repr(packed)]
+struct OfpSwitchConfig(u16, u16);
+
+pub struct ControllerId {
+    pub controller_id: u16
+}
+
+#[repr(packed)]
+struct OfpControllerId([u8; 6], u16);
+
+impl MessageType for SwitchConfig {
+    fn size_of(_: &SwitchConfig) -> usize {
+        size_of::<OfpSwitchConfig>()
+    }
+
+    fn parse(_: &[u8]) -> SwitchConfig {
+        panic!("no parse");
+    }
+    fn marshal(sc: SwitchConfig, bytes: &mut Vec<u8>) {
+        bytes.write_u16::<BigEndian>(sc.flags).unwrap();
+        bytes.write_u16::<BigEndian>(sc.miss_send_len).unwrap();
+    }
+}
+
+impl MessageType for ControllerId {
+    fn size_of(_: &ControllerId) -> usize {
+        size_of::<OfpControllerId>()
+    }
+
+    fn parse(_: &[u8]) -> ControllerId {
+        panic!("no parse");
+    }
+    fn marshal(sc: ControllerId, bytes: &mut Vec<u8>) {
+        for _ in 0..6 {
+            bytes.write_u8(0).unwrap();
+        }
+        bytes.write_u16::<BigEndian>(sc.controller_id).unwrap();
+    }
+}
 
 impl MessageType for SwitchFeatures {
     fn size_of(sf: &SwitchFeatures) -> usize {
@@ -1414,6 +1459,7 @@ pub mod message {
     use super::*;
     use std::io::Write;
     use ofp_header::OfpHeader;
+    use ofp_header::OfpVendorHeader;
     use ofp_message::OfpMessage;
     use packet::Packet;
 
@@ -1432,6 +1478,8 @@ pub mod message {
         PacketOut(PacketOut),
         BarrierRequest,
         BarrierReply,
+        SetConfig(SwitchConfig),
+        SetControllerId(ControllerId),
     }
 
     impl Message {
@@ -1451,6 +1499,8 @@ pub mod message {
                 Message::PacketOut(_) => MsgCode::PacketOut,
                 Message::BarrierRequest => MsgCode::BarrierReq,
                 Message::BarrierReply => MsgCode::BarrierResp,
+                Message::SetConfig(_) => MsgCode::SetConfig,
+                Message::SetControllerId(_) => MsgCode::Vendor,
             }
         }
 
@@ -1467,6 +1517,8 @@ pub mod message {
                 Message::FlowRemoved(flow) => FlowRemoved::marshal(flow, bytes),
                 Message::PortStatus(sts) => PortStatus::marshal(sts, bytes),
                 Message::PacketOut(po) => PacketOut::marshal(po, bytes),
+                Message::SetConfig(po) => SwitchConfig::marshal(po, bytes),
+                Message::SetControllerId(po) => ControllerId::marshal(po, bytes),
                 Message::BarrierRequest | Message::BarrierReply => (),
                 _ => (),
             }
@@ -1488,6 +1540,8 @@ pub mod message {
                 Message::FlowRemoved(ref flow) => OfpHeader::size() + FlowRemoved::size_of(flow),
                 Message::PortStatus(ref ps) => OfpHeader::size() + PortStatus::size_of(ps),
                 Message::PacketOut(ref po) => OfpHeader::size() + PacketOut::size_of(po),
+                Message::SetConfig(ref po) => OfpHeader::size() + SwitchConfig::size_of(po),
+                Message::SetControllerId(ref po) => OfpVendorHeader::size() + ControllerId::size_of(po),
                 Message::BarrierRequest | Message::BarrierReply => OfpHeader::size(),
                 _ => 0,
             }
@@ -1495,16 +1549,35 @@ pub mod message {
 
         fn header_of(xid: u32, msg: &Message) -> OfpHeader {
             let sizeof_buf = Self::size_of(&msg);
-            OfpHeader::new(0x01,
+            OfpHeader::new(0x06,
                            Self::msg_code_of_message(msg) as u8,
                            sizeof_buf as u16,
                            xid)
         }
+        fn vendor_header_of(xid: u32, msg: &Message) -> OfpVendorHeader {
+            let sizeof_buf = Self::size_of(&msg);
+            OfpVendorHeader::new(0x06,
+                           MsgCode::Vendor as u8,
+                           sizeof_buf as u16,
+                           xid,
+                           0x2320,
+                           20
+                           )
+        }
 
         fn marshal(xid: u32, msg: Message) -> Vec<u8> {
-            let hdr = Self::header_of(xid, &msg);
             let mut bytes = vec![];
-            OfpHeader::marshal(&mut bytes, hdr);
+            /* TODO lear how traits work and do something more generic */
+            match Self::msg_code_of_message(&msg) {
+                MsgCode::Vendor => {
+                    let hdr = Self::vendor_header_of(xid, &msg);
+                    OfpVendorHeader::marshal(&mut bytes, hdr)
+                }
+                _ => {
+                    let hdr = Self::header_of(xid, &msg);
+                    OfpHeader::marshal(&mut bytes, hdr)
+                }
+            }
             Message::marshal_body(msg, &mut bytes);
             bytes
         }

@@ -17,6 +17,36 @@ pub struct OfpHeader {
     xid: u32,
 }
 
+#[repr(packed)]
+pub struct OfpVendorHeader {
+    header: OfpHeader,
+    vendor: u32,
+    subtype: u32,
+}
+
+impl OfpVendorHeader {
+    /// Create an `OfpHeader` out of the arguments.
+    pub fn new(version: u8, typ: u8, length: u16, xid: u32, vendor: u32, subtype: u32) -> OfpVendorHeader {
+        OfpVendorHeader {
+            header: OfpHeader::new(version, typ, length, xid),
+            vendor: vendor,
+            subtype: subtype,
+        }
+    }
+    pub fn size() -> usize {
+        size_of::<OfpVendorHeader>()
+    }
+    pub fn marshal(bytes: &mut Vec<u8>, header: OfpVendorHeader) {
+        OfpHeader::marshal(bytes, header.header);
+        bytes.write_u32::<BigEndian>(header.vendor).unwrap();
+        bytes.write_u32::<BigEndian>(header.subtype).unwrap()
+    }
+
+    pub fn parse(_: [u8; 16]) -> Self {
+        panic!("no parse implemented")
+    }
+}
+
 impl OfpHeader {
     /// Create an `OfpHeader` out of the arguments.
     pub fn new(version: u8, typ: u8, length: u16, xid: u32) -> OfpHeader {

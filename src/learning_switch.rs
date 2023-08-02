@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::net::TcpStream;
+use std::os::unix::net::UnixStream;
 use rust_ofp::ofp_controller::openflow0x01::OF0x01Controller;
 use rust_ofp::openflow0x01::{Action, PacketIn, PacketOut, Pattern, PseudoPort, SwitchFeatures};
 use rust_ofp::openflow0x01::message::{add_flow, parse_payload};
@@ -30,7 +30,7 @@ impl LearningSwitch {
         self.known_hosts.insert(pk.dl_src, pkt.port);
     }
 
-    fn routing_packet_in(&mut self, sw: u64, pkt: PacketIn, stream: &mut TcpStream) {
+    fn routing_packet_in(&mut self, sw: u64, pkt: PacketIn, stream: &mut UnixStream) {
         let pk = parse_payload(&pkt.input_payload);
         let pkt_dst = pk.dl_dst;
         let pkt_src = pk.dl_src;
@@ -75,11 +75,11 @@ impl OF0x01Controller for LearningSwitch {
         LearningSwitch { known_hosts: HashMap::new() }
     }
 
-    fn switch_connected(&mut self, _: u64, _: SwitchFeatures, _: &mut TcpStream) {}
+    fn switch_connected(&mut self, _: u64, _: SwitchFeatures, _: &mut UnixStream) {}
 
     fn switch_disconnected(&mut self, _: u64) {}
 
-    fn packet_in(&mut self, sw: u64, _: u32, pkt: PacketIn, stream: &mut TcpStream) {
+    fn packet_in(&mut self, sw: u64, _: u32, pkt: PacketIn, stream: &mut UnixStream) {
         self.learning_packet_in(&pkt);
         self.routing_packet_in(sw, pkt, stream);
     }

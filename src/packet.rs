@@ -15,7 +15,7 @@ pub fn bytes_of_mac(addr: u64) -> [u8; 6] {
 pub fn mac_of_bytes(addr: [u8; 6]) -> u64 {
     fn byte(u: &[u8; 6], i: usize) -> u64 {
         u[i] as u64
-    };
+    }
     (byte(&addr, 0) << 8 * 5) | (byte(&addr, 1) << 8 * 4) | (byte(&addr, 2) << 8 * 3) |
     (byte(&addr, 3) << 8 * 2) | (byte(&addr, 4) << 8 * 1) | (byte(&addr, 5))
 }
