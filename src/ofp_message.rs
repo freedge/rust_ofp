@@ -16,4 +16,5 @@ pub trait OfpMessage {
     /// Returns a pair `(u32, OfpMessage)` of the transaction id and OpenFlow message parsed from
     /// the given OpenFlow header `header`, and buffer `buf`.
     fn parse(_: &OfpHeader, _: &[u8]) -> (u32, Self);
+    fn parse_vendor(_: &OfpVendorHeader, _: &[u8]) -> (u32, Self);
 }

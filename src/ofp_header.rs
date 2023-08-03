@@ -4,6 +4,8 @@ use byteorder::{BigEndian, WriteBytesExt, ReadBytesExt};
 
 use rust_ofp::openflow0x01::MsgCode;
 
+use crate::openflow0x01::MsgSubType;
+
 /// OpenFlow Header
 ///
 /// The first fields of every OpenFlow message, no matter the protocol version.
@@ -42,8 +44,21 @@ impl OfpVendorHeader {
         bytes.write_u32::<BigEndian>(header.subtype).unwrap()
     }
 
-    pub fn parse(_: [u8; 16]) -> Self {
-        panic!("no parse implemented")
+    pub fn parse(header: OfpHeader, buf: [u8; 8]) -> Self {
+        let mut bytes = Cursor::new(buf.to_vec());
+        OfpVendorHeader {
+            header: header,
+            vendor: bytes.read_u32::<BigEndian>().unwrap(),
+            subtype: bytes.read_u32::<BigEndian>().unwrap(),
+        }
+    }
+
+    pub fn subtype_code(&self) -> MsgSubType {
+        unsafe { transmute(self.subtype) }
+    }
+
+    pub fn xid(&self) -> u32 {
+        self.header.xid
     }
 }
 

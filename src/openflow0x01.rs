@@ -34,6 +34,16 @@ pub enum MsgCode {
     QueueGetConfigResp,
 }
 
+#[repr(u32)]
+#[derive(Copy, Clone, Debug)]
+
+pub enum MsgSubType {
+    SetPacketInFormat=16,
+    SetControllerId=20,
+    NxtResume=28,
+    NxtPacketIn2=30,
+}
+
 /// Common API for message types implementing OpenFlow Message Codes (see `MsgCode` enum).
 pub trait MessageType {
     /// Return the byte-size of a message.
@@ -732,6 +742,38 @@ pub struct ControllerId {
 }
 
 #[repr(packed)]
+struct OfpPacketInFormat(u32);
+
+pub enum PacketInFormat {
+    PacketInStd,
+    PacketInNxt,
+    PacketInNxt2,
+}
+
+#[repr(packed)]
+pub struct PacketPropertyHeader {
+    pub typ: u16,
+    pub len: u16
+}
+
+pub struct PacketProperties {
+    pub header: PacketPropertyHeader,
+    pub payload: Payload
+}
+
+#[derive(Default)]
+pub struct NxtPacketIn2 {
+    pub packet: Vec<u8>,
+    pub cookie: u64,
+    pub table_id: u8,
+    pub reason: u8,
+    pub continuation: Vec<u8>,
+    pub userdata: Vec<u8>,
+    pub metadata: Vec<u8>
+}
+
+
+#[repr(packed)]
 struct OfpControllerId([u8; 6], u16);
 
 impl MessageType for SwitchConfig {
@@ -740,6 +782,7 @@ impl MessageType for SwitchConfig {
     }
 
     fn parse(_: &[u8]) -> SwitchConfig {
+
         panic!("no parse");
     }
     fn marshal(sc: SwitchConfig, bytes: &mut Vec<u8>) {
@@ -761,6 +804,19 @@ impl MessageType for ControllerId {
             bytes.write_u8(0).unwrap();
         }
         bytes.write_u16::<BigEndian>(sc.controller_id).unwrap();
+    }
+}
+
+impl MessageType for PacketInFormat {
+    fn size_of(_: &PacketInFormat) -> usize {
+        size_of::<OfpPacketInFormat>()
+    }
+
+    fn parse(_: &[u8]) -> PacketInFormat {
+        panic!("no parse");
+    }
+    fn marshal(sc: PacketInFormat, bytes: &mut Vec<u8>) {
+        bytes.write_u32::<BigEndian>(sc as u32).unwrap();
     }
 }
 
@@ -1024,6 +1080,174 @@ impl MessageType for PacketIn {
         Payload::marshal(pi.input_payload, bytes)
     }
 }
+
+#[derive(Debug)]
+#[repr(u16)]
+pub enum NxPacketIn2PropType {
+    Packet,
+    FullLen,
+    BufferId,
+    TableId,
+    Cookie,
+    Reason,
+    Metadata,
+    Userdata,
+    Continuation,
+}
+
+impl MessageType for NxtPacketIn2 {
+    fn size_of(pkt: &NxtPacketIn2) -> usize {
+        let mut total_len = 0;
+        total_len += 4 + pkt.packet.len();
+        while total_len % 8 != 0 {
+            total_len += 1
+        }
+        total_len += 4 + pkt.continuation.len();
+        while total_len % 8 != 0 {
+            total_len += 1
+        }
+        /*
+        total_len += 4 + pkt.userdata.len();
+        while total_len % 8 != 0 {
+            total_len += 1
+        }
+        */
+        total_len += 4 + pkt.metadata.len();
+        while total_len % 8 != 0 {
+            total_len += 1
+        }
+        total_len += 8; /* reason */
+        total_len += 8; /* table_id */
+        total_len += 16; /* cookie */
+        println!("computed {}", total_len);
+        total_len
+
+    }
+
+    fn parse(buf: &[u8]) -> NxtPacketIn2 {
+        let mut packet : NxtPacketIn2 = NxtPacketIn2 { ..Default::default() };
+
+        let mut size = buf.len() as usize;
+        let mut bytes = Cursor::new(buf.to_vec());
+        while size > 0 {
+            let typ: NxPacketIn2PropType = unsafe { transmute(bytes.read_u16::<BigEndian>().unwrap())};
+            let parsed_len : usize = bytes.read_u16::<BigEndian>().unwrap() as usize;
+            println!("parsing typ={:?} len={}", typ, parsed_len);
+            size -= 4;
+            match typ {
+                NxPacketIn2PropType::Cookie => {
+                    _ = bytes.read_u32::<BigEndian>().unwrap();
+                    packet.cookie = bytes.read_u64::<BigEndian>().unwrap();
+                    println!("cookie={:#16x}", packet.cookie);
+                    size -= 12
+                }
+                NxPacketIn2PropType::TableId => {
+                    packet.table_id = bytes.read_u8().unwrap();
+                    println!("table_id={}", packet.table_id);
+                    size -= 1
+                }
+                NxPacketIn2PropType::Reason => {
+                    packet.reason = bytes.read_u8().unwrap();
+                    println!("reason={}", packet.reason);
+                    size -= 1
+                }
+                NxPacketIn2PropType::Metadata |
+                NxPacketIn2PropType::Userdata |
+                NxPacketIn2PropType::Continuation |
+                NxPacketIn2PropType::Packet => {
+                    let mut v: Vec<u8> = vec![0; parsed_len-4];
+                    match bytes.read_exact(&mut v) {
+                        Ok(_) => {},
+                        Err(e) => {panic!("could not read {}", e)}
+                    }
+                    size -= parsed_len-4;
+                    match typ {
+                        NxPacketIn2PropType::Metadata  => {
+                            packet.metadata = v
+                        }
+                        NxPacketIn2PropType::Userdata  => {
+                            packet.userdata = v
+                        }
+                        NxPacketIn2PropType::Continuation  => {
+                            packet.continuation = v
+                        }
+                        NxPacketIn2PropType::Packet  => {
+                            packet.packet = v
+                        }
+                        _ => { panic!("nope")}
+                    }
+                }
+                _ => { println!("unsupported type")}
+            }
+            let mut len  : usize = parsed_len;
+            while len % 8 != 0 {
+                len += 1;
+                size -= 1;
+                _ = bytes.read_u8().unwrap();
+            }
+        }
+        packet
+    }
+
+    fn marshal(pkt: NxtPacketIn2, bytes: &mut Vec<u8>) {
+        let mut total_length = 0;
+        bytes.write_u16::<BigEndian>(NxPacketIn2PropType::Cookie as u16).unwrap();
+        bytes.write_u16::<BigEndian>(16).unwrap();
+        bytes.write_u32::<BigEndian>(0).unwrap();
+        bytes.write_u64::<BigEndian>(pkt.cookie).unwrap();
+        total_length += 16;
+
+        bytes.write_u16::<BigEndian>(NxPacketIn2PropType::Reason as u16).unwrap();
+        bytes.write_u16::<BigEndian>(5).unwrap();
+        bytes.write_u8(pkt.reason).unwrap();
+        for _ in 0..3 {
+            bytes.write_u8(0).unwrap();
+        }
+        total_length += 8;
+
+        bytes.write_u16::<BigEndian>(NxPacketIn2PropType::TableId as u16).unwrap();
+        bytes.write_u16::<BigEndian>(5).unwrap();
+        bytes.write_u8(pkt.table_id).unwrap();
+        for _ in 0..3 {
+            bytes.write_u8(0).unwrap();
+        }
+        total_length += 8;
+
+        bytes.write_u16::<BigEndian>(NxPacketIn2PropType::Packet as u16).unwrap();
+        bytes.write_u16::<BigEndian>(4+pkt.packet.len() as u16).unwrap();
+
+        bytes.write_all(&pkt.packet).unwrap();
+        total_length += 4 + pkt.packet.len();
+        while total_length % 8 != 0 {
+            total_length += 1;
+            bytes.write_u8(0).unwrap();
+        }
+
+        bytes.write_u16::<BigEndian>(NxPacketIn2PropType::Metadata as u16).unwrap();
+        bytes.write_u16::<BigEndian>(4+pkt.metadata.len() as u16).unwrap();
+
+        bytes.write_all(&pkt.metadata).unwrap();
+        total_length += 4 + pkt.metadata.len();
+        while total_length % 8 != 0 {
+            total_length += 1;
+            bytes.write_u8(0).unwrap();
+        }
+
+        bytes.write_u16::<BigEndian>(NxPacketIn2PropType::Continuation as u16).unwrap();
+        bytes.write_u16::<BigEndian>(4+pkt.continuation.len() as u16).unwrap();
+
+        bytes.write_all(&pkt.continuation).unwrap();
+        total_length += 4 + pkt.continuation.len();
+        while total_length % 8 != 0 {
+            total_length += 1;
+            bytes.write_u8(0).unwrap();
+        }
+
+        println!("wrote {}", total_length);
+
+    }
+}
+
 
 /// Represents packets sent from the controller.
 pub struct PacketOut {
@@ -1480,6 +1704,9 @@ pub mod message {
         BarrierReply,
         SetConfig(SwitchConfig),
         SetControllerId(ControllerId),
+        SetPacketInFormat(PacketInFormat),
+        NxtPacketIn2(NxtPacketIn2),
+        NxtResume(NxtPacketIn2),
     }
 
     impl Message {
@@ -1501,6 +1728,19 @@ pub mod message {
                 Message::BarrierReply => MsgCode::BarrierResp,
                 Message::SetConfig(_) => MsgCode::SetConfig,
                 Message::SetControllerId(_) => MsgCode::Vendor,
+                Message::SetPacketInFormat(_) => MsgCode::Vendor,
+                Message::NxtPacketIn2(_) => MsgCode::Vendor,
+                Message::NxtResume(_) => MsgCode::Vendor,
+            }
+        }
+
+        fn msg_subtype_of_message(msg: &Message) -> MsgSubType {
+            match *msg {
+                Message::SetControllerId(_) => MsgSubType::SetControllerId,
+                Message::SetPacketInFormat(_) => MsgSubType::SetPacketInFormat,
+                Message::NxtPacketIn2(_) => MsgSubType::NxtPacketIn2,
+                Message::NxtResume(_) => MsgSubType::NxtResume,
+                _ => panic!("not a vendor message"),
             }
         }
 
@@ -1519,7 +1759,9 @@ pub mod message {
                 Message::PacketOut(po) => PacketOut::marshal(po, bytes),
                 Message::SetConfig(po) => SwitchConfig::marshal(po, bytes),
                 Message::SetControllerId(po) => ControllerId::marshal(po, bytes),
+                Message::SetPacketInFormat(po) => PacketInFormat::marshal(po, bytes),
                 Message::BarrierRequest | Message::BarrierReply => (),
+                Message::NxtResume(po) => NxtPacketIn2::marshal(po, bytes),
                 _ => (),
             }
         }
@@ -1542,6 +1784,8 @@ pub mod message {
                 Message::PacketOut(ref po) => OfpHeader::size() + PacketOut::size_of(po),
                 Message::SetConfig(ref po) => OfpHeader::size() + SwitchConfig::size_of(po),
                 Message::SetControllerId(ref po) => OfpVendorHeader::size() + ControllerId::size_of(po),
+                Message::SetPacketInFormat(ref po) => OfpVendorHeader::size() + PacketInFormat::size_of(po),
+                Message::NxtResume(ref po) => OfpVendorHeader::size() + NxtPacketIn2::size_of(po),
                 Message::BarrierRequest | Message::BarrierReply => OfpHeader::size(),
                 _ => 0,
             }
@@ -1561,13 +1805,13 @@ pub mod message {
                            sizeof_buf as u16,
                            xid,
                            0x2320,
-                           20
+                           Self::msg_subtype_of_message(msg) as u32
                            )
         }
 
         fn marshal(xid: u32, msg: Message) -> Vec<u8> {
             let mut bytes = vec![];
-            /* TODO lear how traits work and do something more generic */
+            /* TODO learn how traits work and do something more generic */
             match Self::msg_code_of_message(&msg) {
                 MsgCode::Vendor => {
                     let hdr = Self::vendor_header_of(xid, &msg);
@@ -1580,6 +1824,19 @@ pub mod message {
             }
             Message::marshal_body(msg, &mut bytes);
             bytes
+        }
+
+        fn parse_vendor(header: &OfpVendorHeader, buf: &[u8]) -> (u32, Message) {
+            let subtype = header.subtype_code();
+            let msg: Message = match subtype {
+                MsgSubType::NxtPacketIn2 => {
+                    Message::NxtPacketIn2(NxtPacketIn2::parse(buf))
+                }
+                _ => {
+                    panic!("unknown subtype {:?}", subtype)
+                }
+            };
+            (header.xid(), msg)
         }
 
         fn parse(header: &OfpHeader, buf: &[u8]) -> (u32, Message) {
@@ -1621,6 +1878,9 @@ pub mod message {
                 }
                 MsgCode::BarrierReq => Message::BarrierRequest,
                 MsgCode::BarrierResp => Message::BarrierReply,
+                MsgCode::Vendor => {
+                    panic!("got a Vendor message")
+                }
                 code => panic!("Unexpected message type {:?}", code),
             };
             (header.xid(), msg)
