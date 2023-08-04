@@ -750,17 +750,6 @@ pub enum PacketInFormat {
     PacketInNxt2,
 }
 
-#[repr(packed)]
-pub struct PacketPropertyHeader {
-    pub typ: u16,
-    pub len: u16
-}
-
-pub struct PacketProperties {
-    pub header: PacketPropertyHeader,
-    pub payload: Payload
-}
-
 #[derive(Default)]
 pub struct NxtPacketIn2 {
     pub packet: Vec<u8>,
@@ -782,7 +771,6 @@ impl MessageType for SwitchConfig {
     }
 
     fn parse(_: &[u8]) -> SwitchConfig {
-
         panic!("no parse");
     }
     fn marshal(sc: SwitchConfig, bytes: &mut Vec<u8>) {
@@ -1823,6 +1811,7 @@ pub mod message {
 
         fn parse_vendor(header: &OfpVendorHeader, buf: &[u8]) -> (u32, Message) {
             let subtype = header.subtype_code();
+
             let msg: Message = match subtype {
                 MsgSubType::NxtPacketIn2 => {
                     Message::NxtPacketIn2(NxtPacketIn2::parse(buf))

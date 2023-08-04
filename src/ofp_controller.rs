@@ -107,6 +107,8 @@ pub mod openflow0x01 {
         bytes.consume(3);
         bytes.consume(4*(data_offset as usize - 4));
 
+        /* TCP payload. This is what we are supposed to receive, so
+         * we should not panic if something is incorrect. */
         /* SSL Handshake */
         let tls_content_type = bytes.read_u8()?;
         let tls_version = bytes.read_u16::<BigEndian>()?;
@@ -124,13 +126,14 @@ pub mod openflow0x01 {
             Ok((_res, msg)) => {
                 if let tls_parser::TlsMessage::Handshake(tls_parser::TlsMessageHandshake::ClientHello(h)) = msg  {
                     if let Some(ext) = h.ext {
-                        let (_res, exts) = tls_parser::parse_tls_client_hello_extensions(ext).unwrap();
-                        for e in exts.iter() {
-                            if let tls_parser::TlsExtension::SNI(sni) = e {
-                                let (_, s) = sni[0];
-                                let snistr = std::str::from_utf8(s).unwrap();
-                                println!("parsed SNI={snistr}");
-                                return Ok(snistr.to_string());
+                        if let Ok((_res, exts)) = tls_parser::parse_tls_client_hello_extensions(ext) {
+                            for e in exts.iter() {
+                                if let tls_parser::TlsExtension::SNI(sni) = e {
+                                    let (_, s) = sni[0];
+                                    let snistr = std::str::from_utf8(s)?;
+                                    println!("parsed SNI={snistr}");
+                                    return Ok(snistr.to_string());
+                                }
                             }
                         }
                     }
@@ -141,6 +144,50 @@ pub mod openflow0x01 {
             }
         }
         Err(NoSNIFound.into())
+    }
+
+    pub fn force_reg8_18_bit(ret: u64, metadata: &mut Vec<u8>, skip: bool) {
+        /* ret is like that: 8001080800000032 */
+        /*                   8001              vendor */
+        /*                       04            field =4 no mask */
+        /*                         08          length */
+        /*                                00110010b */
+        /* should match reg8[18] */
+        assert_eq!(ret, 0x8001080800000032);
+        let target_vendor = ((ret & 0xFFFF000000000000) >> 48) as u32;
+        let target_field =  ((ret & 0x0000FE0000000000) >> 41) as u32;
+        let target_bit = ret & 0x1f;
+
+        /* need to parse those metadata as well probably */
+        let mut size = metadata.len();
+        let mut bytes = Cursor::new(metadata);
+        while size > 0 {
+            let nx_header = bytes.read_u32::<BigEndian>().unwrap();
+            let vendor = (nx_header >> 16) & 0xffff;
+            assert!(vendor != 0xffff, "experimental feature not supported");
+            let hasmask = (nx_header & 0x0100) == 0x0100;
+            let field = (nx_header & 0xFE00) >> 9;
+            let len = (nx_header & 0xFF) as usize;
+            // println!("header {:x} {len} mask={hasmask} vendor={vendor:x} field={field}", nx_header);
+            if vendor == target_vendor && field == target_field  && hasmask && len == 16 {
+                // parsing { .nf = { NXM_HEADER(0x0,0x8001,4,0,8), 4, "OXM_OF_PKT_REG4", MFF_XREG4 } },
+                let mut reg8 = bytes.read_u32::<BigEndian>().unwrap();
+                if !skip {
+                    reg8 |= 0x1 << target_bit;
+                }
+                // rewrite reg8
+                bytes.set_position(bytes.position()-4);
+                bytes.write_u32::<BigEndian>(reg8).unwrap();
+                let reg9 = bytes.read_u32::<BigEndian>().unwrap();
+                let mask8 = bytes.read_u32::<BigEndian>().unwrap();
+                let mask9 = bytes.read_u32::<BigEndian>().unwrap();
+                println!("reg8={reg8:x}/{mask8:x} reg9={reg9:x}/{mask9:x}");
+            } else {
+                bytes.consume(len);
+            }
+            size -= 4;
+            size -= len;
+        }
     }
 
     fn handle_acl_sni(mut packet: NxtPacketIn2) -> NxtPacketIn2 {
@@ -157,52 +204,12 @@ pub mod openflow0x01 {
         println!("glob = {globstr}, opcode = {opcode:x}, fill = {fill:x}, ret = {ret:x}");
 
         let accept = snistr.contains(globstr);
-
-
-        /* ret is like that: 8001080800000032 */
-        /*                   8001              vendor */
-        /*                       04            field =4 no mask */
-        /*                         08          length */
-        /*                                00110010b */
-        /* should match reg8[18] */
-
-        /* need to parse those metadata as well probably */
-        let mut size = packet.metadata.len();
-        let mut bytes = Cursor::new(&mut packet.metadata);
-        while size > 0 {
-            let nx_header = bytes.read_u32::<BigEndian>().unwrap();
-            let vendor = (nx_header >> 16) & 0xffff;
-            assert!(vendor != 0xffff, "experimental feature not supported");
-            let hasmask = (nx_header & 0x0100) == 0x0100;
-            let field = (nx_header & 0xFE00) >> 9;
-            let len = (nx_header & 0xFF) as usize;
-            // println!("header {:x} {len} mask={hasmask} vendor={vendor:x} field={field}", nx_header);
-            if vendor == 0x8001 && field == 4  && hasmask && len == 16 {
-                // parsing { .nf = { NXM_HEADER(0x0,0x8001,4,0,8), 4, "OXM_OF_PKT_REG4", MFF_XREG4 } },
-                let mut reg8 = bytes.read_u32::<BigEndian>().unwrap();
-                if !accept {
-                    reg8 |= 0x40000;
-                }
-                // rewrite reg8
-                bytes.set_position(bytes.position()-4);
-                bytes.write_u32::<BigEndian>(reg8).unwrap();
-                let reg9 = bytes.read_u32::<BigEndian>().unwrap();
-                let mask8 = bytes.read_u32::<BigEndian>().unwrap();
-                let mask9 = bytes.read_u32::<BigEndian>().unwrap();
-                println!("reg8={reg8:x}/{mask8:x} reg9={reg9:x}/{mask9:x}");
-            } else {
-                bytes.consume(len);
-            }
-            size -= 4;
-            size -= len;
-        }
-
+        force_reg8_18_bit(ret, &mut packet.metadata, accept);
 
         NxtPacketIn2 { packet: packet.packet,
             cookie: packet.cookie, table_id: packet.table_id, reason: packet.reason,
             continuation: packet.continuation, userdata: None,
             metadata: packet.metadata }
-
     }
 
     impl<Cntl: OF0x01Controller> ThreadState<Cntl> {
