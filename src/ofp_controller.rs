@@ -33,6 +33,7 @@ pub mod openflow0x01 {
     // use tls_parser::parse_tls_message_handshake;
     use std::io::BufRead;
     use std::error::Error;
+    use std::fmt;
 
     #[derive(Debug)]
     struct ThreadState<Cntl> {
@@ -40,138 +41,173 @@ pub mod openflow0x01 {
         phantom: PhantomData<Cntl>,
     }
 
-    impl<Cntl: OF0x01Controller> ThreadState<Cntl> {
+    #[derive(Debug)]
+    pub struct NotATLSPayload;
+    #[derive(Debug)]
+    pub struct NoSNIFound;
 
-        /* we expect a TCP message and panic if that's not the case.
-         * Returns the SNI of the TLS payload or an error
-         */
-        fn parse_sni(packet: &Vec<u8>) -> Result<String, Box<dyn Error>> {
-            let mut bytes = Cursor::new(packet);
-            /* eth */
-            bytes.consume(12);
-            let protocol = bytes.read_u16::<BigEndian>().unwrap();
-            assert!(protocol == 0x0800, "not IPv4");
+    #[derive(Debug)]
+    pub struct NotATLSHandshake;
 
-            /* IPv4 */
-            let version_length = bytes.read_u8().unwrap();
-            let header_length = version_length & 0x0F;
-            /* discard IP header */
-            bytes.consume(7);
-            let ttl = bytes.read_u8().unwrap();
-            let protocol = bytes.read_u8().unwrap();
-            let _checksum  = bytes.read_u16::<BigEndian>().unwrap();
-            bytes.consume(4*(header_length as usize - 3));
-            assert!(protocol == 6, "not TCP");
+    impl fmt::Display for NotATLSPayload {
+        // This trait requires `fmt` with this exact signature.
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            // Write strictly the first element into the supplied output
+            // stream: `f`. Returns `fmt::Result` which indicates whether the
+            // operation succeeded or failed. Note that `write!` uses syntax which
+            // is very similar to `println!`.
+            write!(f, "Not a TLS payload")
+        }
+    }
+    impl fmt::Display for NoSNIFound {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "No SNI Found")
+        }
+    }
+    impl fmt::Display for NotATLSHandshake {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "Not a TLS handshake")
+        }
+    }
 
-            /* TCP*/
-            let src_port = bytes.read_u16::<BigEndian>().unwrap();
-            let dst_port = bytes.read_u16::<BigEndian>().unwrap();
-            let _seq = bytes.read_u32::<BigEndian>().unwrap();
-            let _ack = bytes.read_u32::<BigEndian>().unwrap();
+    impl std::error::Error for  NoSNIFound {}
+    impl std::error::Error for  NotATLSPayload {}
+    impl std::error::Error for  NotATLSHandshake {}
 
-            let data_offset = (bytes.read_u8().unwrap() & 0xF0) >> 4;
-            bytes.consume(3);
-            bytes.consume(4*(data_offset as usize - 4));
 
-            /* SSL Handshake */
-            let tls_content_type = bytes.read_u8()?;
-            let tls_version = bytes.read_u16::<BigEndian>()?;
-            bytes.consume(2);
 
-            println!("Parsing ttl={ttl} :{src_port}->:{dst_port} {tls_content_type:#02x} {tls_version:#02x}");
+    /* we expect a TCP message and panic if that's not the case.
+     * Returns the SNI of the TLS payload or an error
+     */
+    pub fn parse_sni(packet: &Vec<u8>) -> Result<String, Box<dyn Error>> {
+        let mut bytes = Cursor::new(packet);
+        /* eth */
+        bytes.consume(12);
+        let protocol = bytes.read_u16::<BigEndian>().unwrap();
+        assert!(protocol == 0x0800, "not IPv4");
 
-            let remaining = &bytes.get_ref()[(bytes.position() as usize)..];
-            // tls_parser::parse_tls_message_handshake(bytes.remaining_slice());
+        /* IPv4 */
+        let version_length = bytes.read_u8().unwrap();
+        let header_length = version_length & 0x0F;
+        /* discard IP header */
+        bytes.consume(7);
+        let ttl = bytes.read_u8().unwrap();
+        let protocol = bytes.read_u8().unwrap();
+        let _checksum  = bytes.read_u16::<BigEndian>().unwrap();
+        bytes.consume(4*(header_length as usize - 3));
+        assert!(protocol == 6, "not TCP");
 
-            if tls_content_type != 0x16 {
-                return Err("not a TLS payload".into())
-            }
-            match tls_parser::parse_tls_message_handshake(remaining) {
-                Ok((_res, msg)) => {
-                    if let tls_parser::TlsMessage::Handshake(tls_parser::TlsMessageHandshake::ClientHello(h)) = msg  {
-                        if let Some(ext) = h.ext {
-                            let (_res, exts) = tls_parser::parse_tls_client_hello_extensions(ext).unwrap();
-                            for e in exts.iter() {
-                                if let tls_parser::TlsExtension::SNI(sni) = e {
-                                    let (_, s) = sni[0];
-                                    let snistr = std::str::from_utf8(s).unwrap();
-                                    println!("parsed SNI={snistr}");
-                                    return Ok(snistr.to_string());
-                                }
+        /* TCP*/
+        let src_port = bytes.read_u16::<BigEndian>().unwrap();
+        let dst_port = bytes.read_u16::<BigEndian>().unwrap();
+        let _seq = bytes.read_u32::<BigEndian>().unwrap();
+        let _ack = bytes.read_u32::<BigEndian>().unwrap();
+
+        let data_offset = (bytes.read_u8().unwrap() & 0xF0) >> 4;
+        bytes.consume(3);
+        bytes.consume(4*(data_offset as usize - 4));
+
+        /* SSL Handshake */
+        let tls_content_type = bytes.read_u8()?;
+        let tls_version = bytes.read_u16::<BigEndian>()?;
+        bytes.consume(2);
+
+        println!("Parsing ttl={ttl} :{src_port}->:{dst_port} {tls_content_type:#02x} {tls_version:#02x}");
+
+        let remaining = &bytes.get_ref()[(bytes.position() as usize)..];
+        // tls_parser::parse_tls_message_handshake(bytes.remaining_slice());
+
+        if tls_content_type != 0x16 {
+            return Err(NotATLSPayload.into())
+        }
+        match tls_parser::parse_tls_message_handshake(remaining) {
+            Ok((_res, msg)) => {
+                if let tls_parser::TlsMessage::Handshake(tls_parser::TlsMessageHandshake::ClientHello(h)) = msg  {
+                    if let Some(ext) = h.ext {
+                        let (_res, exts) = tls_parser::parse_tls_client_hello_extensions(ext).unwrap();
+                        for e in exts.iter() {
+                            if let tls_parser::TlsExtension::SNI(sni) = e {
+                                let (_, s) = sni[0];
+                                let snistr = std::str::from_utf8(s).unwrap();
+                                println!("parsed SNI={snistr}");
+                                return Ok(snistr.to_string());
                             }
                         }
                     }
                 }
-                Err(e) => {
-                    /* there's a headache about the lifetime of e so we just create a string there */
-                    let s = format!("{}", e);
-                    return Err(s.into());
-                }
             }
-            Err("no SNI found".into())
+            Err(_) => {
+                return Err(NotATLSHandshake.into());
+            }
+        }
+        Err(NoSNIFound.into())
+    }
+
+    fn handle_acl_sni(mut packet: NxtPacketIn2) -> NxtPacketIn2 {
+        let snistr = parse_sni(&packet.packet).unwrap_or("".to_string());
+
+        let mut bytes = Cursor::new(packet.userdata.unwrap());
+        let opcode = bytes.read_u32::<BigEndian>().unwrap();
+        assert!(opcode == 0x1b, "not an inspect action");
+
+        let fill = bytes.read_u32::<BigEndian>().unwrap();
+        let ret = bytes.read_u64::<BigEndian>().unwrap();
+
+        let globstr = std::str::from_utf8(&bytes.get_ref()[16..]).unwrap();
+        println!("glob = {globstr}, opcode = {opcode:x}, fill = {fill:x}, ret = {ret:x}");
+
+        let accept = snistr.contains(globstr);
+
+
+        /* ret is like that: 8001080800000032 */
+        /*                   8001              vendor */
+        /*                       04            field =4 no mask */
+        /*                         08          length */
+        /*                                00110010b */
+        /* should match reg8[18] */
+
+        /* need to parse those metadata as well probably */
+        let mut size = packet.metadata.len();
+        let mut bytes = Cursor::new(&mut packet.metadata);
+        while size > 0 {
+            let nx_header = bytes.read_u32::<BigEndian>().unwrap();
+            let vendor = (nx_header >> 16) & 0xffff;
+            assert!(vendor != 0xffff, "experimental feature not supported");
+            let hasmask = (nx_header & 0x0100) == 0x0100;
+            let field = (nx_header & 0xFE00) >> 9;
+            let len = (nx_header & 0xFF) as usize;
+            // println!("header {:x} {len} mask={hasmask} vendor={vendor:x} field={field}", nx_header);
+            if vendor == 0x8001 && field == 4  && hasmask && len == 16 {
+                // parsing { .nf = { NXM_HEADER(0x0,0x8001,4,0,8), 4, "OXM_OF_PKT_REG4", MFF_XREG4 } },
+                let mut reg8 = bytes.read_u32::<BigEndian>().unwrap();
+                if !accept {
+                    reg8 |= 0x40000;
+                }
+                // rewrite reg8
+                bytes.set_position(bytes.position()-4);
+                bytes.write_u32::<BigEndian>(reg8).unwrap();
+                let reg9 = bytes.read_u32::<BigEndian>().unwrap();
+                let mask8 = bytes.read_u32::<BigEndian>().unwrap();
+                let mask9 = bytes.read_u32::<BigEndian>().unwrap();
+                println!("reg8={reg8:x}/{mask8:x} reg9={reg9:x}/{mask9:x}");
+            } else {
+                bytes.consume(len);
+            }
+            size -= 4;
+            size -= len;
         }
 
-        fn handle_acl_sni(mut packet: NxtPacketIn2) -> NxtPacketIn2 {
-            let snistr = Self::parse_sni(&packet.packet).unwrap_or("".to_string());
 
-            let mut bytes = Cursor::new(packet.userdata.unwrap());
-            let opcode = bytes.read_u32::<BigEndian>().unwrap();
-            assert!(opcode == 0x1b, "not an inspect action");
+        NxtPacketIn2 { packet: packet.packet,
+            cookie: packet.cookie, table_id: packet.table_id, reason: packet.reason,
+            continuation: packet.continuation, userdata: None,
+            metadata: packet.metadata }
 
-            let fill = bytes.read_u32::<BigEndian>().unwrap();
-            let ret = bytes.read_u64::<BigEndian>().unwrap();
+    }
 
-            let globstr = std::str::from_utf8(&bytes.get_ref()[16..]).unwrap();
-            println!("glob = {globstr}, opcode = {opcode:x}, fill = {fill:x}, ret = {ret:x}");
-
-            let accept = snistr.contains(globstr);
+    impl<Cntl: OF0x01Controller> ThreadState<Cntl> {
 
 
-            /* ret is like that: 8001080800000032 */
-            /*                   8001              vendor */
-            /*                       04            field =4 no mask */
-            /*                         08          length */
-            /*                                00110010b */
-            /* should match reg8[18] */
-
-            /* need to parse those metadata as well probably */
-            let mut size = packet.metadata.len();
-            let mut bytes = Cursor::new(&mut packet.metadata);
-            while size > 0 {
-                let nx_header = bytes.read_u32::<BigEndian>().unwrap();
-                let vendor = (nx_header >> 16) & 0xffff;
-                assert!(vendor != 0xffff, "experimental feature not supported");
-                let hasmask = (nx_header & 0x0100) == 0x0100;
-                let field = (nx_header & 0xFE00) >> 9;
-                let len = (nx_header & 0xFF) as usize;
-                // println!("header {:x} {len} mask={hasmask} vendor={vendor:x} field={field}", nx_header);
-                if vendor == 0x8001 && field == 4  && hasmask && len == 16 {
-                    // parsing { .nf = { NXM_HEADER(0x0,0x8001,4,0,8), 4, "OXM_OF_PKT_REG4", MFF_XREG4 } },
-                    let mut reg8 = bytes.read_u32::<BigEndian>().unwrap();
-                    if !accept {
-                        reg8 |= 0x40000;
-                    }
-                    // rewrite reg8
-                    bytes.set_position(bytes.position()-4);
-                    bytes.write_u32::<BigEndian>(reg8).unwrap();
-                    let reg9 = bytes.read_u32::<BigEndian>().unwrap();
-                    let mask8 = bytes.read_u32::<BigEndian>().unwrap();
-                    let mask9 = bytes.read_u32::<BigEndian>().unwrap();
-                    println!("reg8={reg8:x}/{mask8:x} reg9={reg9:x}/{mask9:x}");
-                } else {
-                    bytes.consume(len);
-                }
-                size -= 4;
-                size -= len;
-            }
-
-
-            NxtPacketIn2 { packet: packet.packet,
-                cookie: packet.cookie, table_id: packet.table_id, reason: packet.reason,
-                continuation: packet.continuation, userdata: None,
-                metadata: packet.metadata }
-
-        }
         fn process_message(&mut self,
                            cntl: &mut Cntl,
                            xid: u32,
@@ -213,7 +249,7 @@ pub mod openflow0x01 {
                 }
                 Message::NxtPacketIn2(pkt) => {
                     // we received our glorious packet
-                    let pkt2 = Self::handle_acl_sni(pkt);
+                    let pkt2 = handle_acl_sni(pkt);
                     Cntl::send_message(xid, Message::NxtResume(pkt2), stream)
                 }
                 Message::NxtResume(_) |
