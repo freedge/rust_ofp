@@ -768,7 +768,7 @@ pub struct NxtPacketIn2 {
     pub table_id: u8,
     pub reason: u8,
     pub continuation: Vec<u8>,
-    pub userdata: Vec<u8>,
+    pub userdata: Option<Vec<u8>>,
     pub metadata: Vec<u8>
 }
 
@@ -1119,7 +1119,6 @@ impl MessageType for NxtPacketIn2 {
         total_len += 8; /* reason */
         total_len += 8; /* table_id */
         total_len += 16; /* cookie */
-        println!("computed {}", total_len);
         total_len
 
     }
@@ -1132,7 +1131,6 @@ impl MessageType for NxtPacketIn2 {
         while size > 0 {
             let typ: NxPacketIn2PropType = unsafe { transmute(bytes.read_u16::<BigEndian>().unwrap())};
             let parsed_len : usize = bytes.read_u16::<BigEndian>().unwrap() as usize;
-            println!("parsing typ={:?} len={}", typ, parsed_len);
             size -= 4;
             match typ {
                 NxPacketIn2PropType::Cookie => {
@@ -1166,7 +1164,7 @@ impl MessageType for NxtPacketIn2 {
                             packet.metadata = v
                         }
                         NxPacketIn2PropType::Userdata  => {
-                            packet.userdata = v
+                            packet.userdata = Some(v)
                         }
                         NxPacketIn2PropType::Continuation  => {
                             packet.continuation = v
@@ -1242,9 +1240,6 @@ impl MessageType for NxtPacketIn2 {
             total_length += 1;
             bytes.write_u8(0).unwrap();
         }
-
-        println!("wrote {}", total_length);
-
     }
 }
 
