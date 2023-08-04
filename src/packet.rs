@@ -2,7 +2,7 @@ use std::io::{BufRead, Cursor, Read};
 use std::mem::size_of;
 use byteorder::{BigEndian, ReadBytesExt};
 
-use bits::test_bit;
+use crate::bits::test_bit;
 
 pub fn bytes_of_mac(addr: u64) -> [u8; 6] {
     let mut arr = [0; 6];

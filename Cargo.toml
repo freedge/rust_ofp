@@ -2,6 +2,7 @@
 name = "rust_ofp"
 version = "0.2.1"
 authors = ["Sam Baxter <sbaxter@cs.umass.edu>"]
+edition = "2021"
 
 description = "Rust OpenFlow 0x01 Protocol and Controller Framework"
 

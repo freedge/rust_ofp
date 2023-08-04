@@ -1,5 +1,5 @@
-use ofp_header::OfpHeader;
-use ofp_header::OfpVendorHeader;
+use crate::ofp_header::OfpHeader;
+use crate::ofp_header::OfpVendorHeader;
 
 /// OpenFlow Message
 ///

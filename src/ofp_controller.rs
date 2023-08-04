@@ -1,6 +1,6 @@
 
 use std::os::unix::net::UnixStream;
-use rust_ofp::ofp_message::OfpMessage;
+use crate::rust_ofp::ofp_message::OfpMessage;
 
 
 
@@ -23,11 +23,11 @@ pub mod openflow0x01 {
     use std::marker::PhantomData;
     use std::os::unix::net::UnixStream;
 
-    use rust_ofp::ofp_header::OfpHeader;
-    use rust_ofp::ofp_header::OfpVendorHeader;
-    use rust_ofp::ofp_message::OfpMessage;
-    use rust_ofp::openflow0x01::{FlowMod, PacketIn, PacketOut, SwitchFeatures, SwitchConfig, ControllerId, PacketInFormat, NxtPacketIn2};
-    use rust_ofp::openflow0x01::message::Message;
+    use crate::rust_ofp::ofp_header::OfpHeader;
+    use crate::rust_ofp::ofp_header::OfpVendorHeader;
+    use crate::rust_ofp::ofp_message::OfpMessage;
+    use crate::rust_ofp::openflow0x01::{FlowMod, PacketIn, PacketOut, SwitchFeatures, SwitchConfig, ControllerId, PacketInFormat, NxtPacketIn2};
+    use crate::rust_ofp::openflow0x01::message::Message;
     use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
     extern crate tls_parser;
     // use tls_parser::parse_tls_message_handshake;

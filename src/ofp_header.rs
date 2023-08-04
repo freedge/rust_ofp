@@ -2,7 +2,7 @@ use std::io::Cursor;
 use std::mem::{size_of, transmute};
 use byteorder::{BigEndian, WriteBytesExt, ReadBytesExt};
 
-use rust_ofp::openflow0x01::MsgCode;
+use crate::rust_ofp::openflow0x01::MsgCode;
 
 use crate::openflow0x01::MsgSubType;
 

@@ -3,8 +3,8 @@ use std::mem::{size_of, transmute};
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use bits::*;
-use packet::{bytes_of_mac, mac_of_bytes};
+use crate::bits::*;
+use crate::packet::{bytes_of_mac, mac_of_bytes};
 
 /// OpenFlow 1.0 message type codes, used by headers to identify meaning of the rest of a message.
 #[repr(u8)]
@@ -1665,10 +1665,10 @@ impl MessageType for Error {
 pub mod message {
     use super::*;
     use std::io::Write;
-    use ofp_header::OfpHeader;
-    use ofp_header::OfpVendorHeader;
-    use ofp_message::OfpMessage;
-    use packet::Packet;
+    use crate::ofp_header::OfpHeader;
+    use crate::ofp_header::OfpVendorHeader;
+    use crate::ofp_message::OfpMessage;
+    use crate::packet::Packet;
 
     /// Abstractions of OpenFlow 1.0 messages mapping to message codes.
     pub enum Message {
