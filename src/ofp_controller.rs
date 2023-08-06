@@ -28,6 +28,7 @@ pub mod openflow0x01 {
     use crate::rust_ofp::ofp_message::OfpMessage;
     use crate::rust_ofp::openflow0x01::{FlowMod, PacketIn, PacketOut, SwitchFeatures, SwitchConfig, ControllerId, PacketInFormat, NxtPacketIn2};
     use crate::rust_ofp::openflow0x01::message::Message;
+    use crate::rust_ofp::packet::{Packet,Nw,Tp};
     use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
     extern crate tls_parser;
     // use tls_parser::parse_tls_message_handshake;
@@ -80,32 +81,13 @@ pub mod openflow0x01 {
      * Returns the SNI of the TLS payload or an error
      */
     pub fn parse_sni(packet: &Vec<u8>) -> Result<String, Box<dyn Error>> {
-        let mut bytes = Cursor::new(packet);
-        /* eth */
-        bytes.consume(12);
-        let protocol = bytes.read_u16::<BigEndian>().unwrap();
-        assert!(protocol == 0x0800, "not IPv4");
-
-        /* IPv4 */
-        let version_length = bytes.read_u8().unwrap();
-        let header_length = version_length & 0x0F;
-        /* discard IP header */
-        bytes.consume(7);
-        let ttl = bytes.read_u8().unwrap();
-        let protocol = bytes.read_u8().unwrap();
-        let _checksum  = bytes.read_u16::<BigEndian>().unwrap();
-        bytes.consume(4*(header_length as usize - 3));
-        assert!(protocol == 6, "not TCP");
-
-        /* TCP*/
-        let src_port = bytes.read_u16::<BigEndian>().unwrap();
-        let dst_port = bytes.read_u16::<BigEndian>().unwrap();
-        let _seq = bytes.read_u32::<BigEndian>().unwrap();
-        let _ack = bytes.read_u32::<BigEndian>().unwrap();
-
-        let data_offset = (bytes.read_u8().unwrap() & 0xF0) >> 4;
-        bytes.consume(3);
-        bytes.consume(4*(data_offset as usize - 4));
+        let packet = Packet::parse(packet);
+        let Nw::Ip(ip) = packet.nw else {panic!("not IP")};
+        let Tp::Tcp(tcp) = ip.tp else {panic!("not TCP")};
+        let mut bytes = Cursor::new(tcp.payload);
+        /* the parser parses the TCP header until the option part and returns options + payload
+         * as payload. We skip the option part to get the payload */
+        bytes.consume(4 * (tcp.offset as usize) - 20);
 
         /* TCP payload. This is what we are supposed to receive, so
          * we should not panic if something is incorrect. */
@@ -114,7 +96,7 @@ pub mod openflow0x01 {
         let tls_version = bytes.read_u16::<BigEndian>()?;
         bytes.consume(2);
 
-        println!("Parsing ttl={ttl} :{src_port}->:{dst_port} {tls_content_type:#02x} {tls_version:#02x}");
+        println!("Parsing ttl={} :{}->:{} {tls_content_type:#02x} {tls_version:#02x} [{:?}]", ip.ttl, tcp.src, tcp.dst, tcp.flags);
 
         let remaining = &bytes.get_ref()[(bytes.position() as usize)..];
         // tls_parser::parse_tls_message_handshake(bytes.remaining_slice());
