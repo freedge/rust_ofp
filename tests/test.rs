@@ -3,7 +3,7 @@ extern crate rust_ofp;
 
 #[cfg(test)]
 pub mod test {
-    use rust_ofp::ofp_controller::openflow0x01::{parse_sni,NoSNIFound,NotATLSPayload,NotATLSHandshake,force_reg8_18_bit};
+    use rust_ofp::ofp_controller::openflow0x01::{parse_sni,NoSNIFound,NotATLSPayload,NotATLSHandshake,force_reg8_bit};
     use rust_ofp::openflow0x01::*;
 
     fn read_hexstream(hexstream: &str) -> Vec<u8> {
@@ -97,10 +97,10 @@ pub mod test {
         let changed_metadata: Vec<u8> = vec![128, 0, 0, 4, 0, 0, 0, 3, 128, 0, 10, 2, 8, 0, 128, 1, 1, 16, 0, 4, 5, 7, 0, 0, 0, 0, 255, 255, 255, 255, 0, 0, 0, 0, 128, 1, 9, 16, 0, /* bit changed */ 5, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255, 0, 0, 0, 0, 128, 1, 11, 16, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 255, 255, 255, 255, 128, 1, 12, 8, 0, 0, 0, 9, 0, 0, 0, 3, 128, 1, 15, 16, 0, 0, 0, 2, 0, 0, 0, 0, 255, 255, 255, 255, 0, 0, 0, 0, 0, 1, 211, 8, 0, 0, 0, 34, 0, 0, 0, 255, 0, 1, 212, 2, 0, 3, 0, 1, 214, 4, 0, 0, 0, 16, 0, 1, 240, 4, 10, 225, 42, 10, 0, 1, 242, 4, 192, 168, 42, 100, 0, 1, 238, 1, 6, 0, 1, 248, 2, 210, 248, 0, 1, 250, 2, 31, 144, 128, 0, 4, 8, 0, 0, 0, 0, 0, 0, 0, 2];
 
         let mut metadata: Vec<u8> = initial_metadata.clone();
-        force_reg8_18_bit(0x8001080800000032, &mut metadata, true);
+        force_reg8_bit(0x8001080800000032, &mut metadata, true);
         assert_eq!(initial_metadata, metadata);
 
-        force_reg8_18_bit(0x8001080800000032, &mut metadata, false);
+        force_reg8_bit(0x8001080800000032, &mut metadata, false);
         assert_eq!(changed_metadata, metadata);
     }
 }

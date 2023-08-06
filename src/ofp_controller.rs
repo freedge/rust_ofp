@@ -146,14 +146,14 @@ pub mod openflow0x01 {
         Err(NoSNIFound.into())
     }
 
-    pub fn force_reg8_18_bit(ret: u64, metadata: &mut Vec<u8>, skip: bool) {
+    pub fn force_reg8_bit(ret: u64, metadata: &mut Vec<u8>, skip: bool) {
         /* ret is like that: 8001080800000032 */
         /*                   8001              vendor */
         /*                       04            field =4 no mask */
         /*                         08          length */
         /*                                00110010b */
         /* should match reg8[18] */
-        assert_eq!(ret, 0x8001080800000032);
+        assert_eq!(ret & 0xFFFFFFFFFFFFFFE0, 0x8001080800000020);
         let target_vendor = ((ret & 0xFFFF000000000000) >> 48) as u32;
         let target_field =  ((ret & 0x0000FE0000000000) >> 41) as u32;
         let target_bit = ret & 0x1f;
@@ -204,7 +204,7 @@ pub mod openflow0x01 {
         println!("glob = {globstr}, opcode = {opcode:x}, fill = {fill:x}, ret = {ret:x}");
 
         let accept = snistr.contains(globstr);
-        force_reg8_18_bit(ret, &mut packet.metadata, accept);
+        force_reg8_bit(ret, &mut packet.metadata, accept);
 
         NxtPacketIn2 { packet: packet.packet,
             cookie: packet.cookie, table_id: packet.table_id, reason: packet.reason,
