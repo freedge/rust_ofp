@@ -3,7 +3,7 @@ extern crate rust_ofp;
 
 #[cfg(test)]
 pub mod test {
-    use rust_ofp::ofp_controller::openflow0x01::{parse_sni,NoSNIFound,NotATLSPayload,NotATLSHandshake,force_reg8_bit};
+    use rust_ofp::inspect_controller::{parse_sni,NoSNIFound,NotATLSPayload,NotATLSHandshake,force_reg8_bit};
     use rust_ofp::openflow0x01::*;
 
     fn read_hexstream(hexstream: &str) -> Vec<u8> {

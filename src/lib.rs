@@ -3,7 +3,7 @@
 
 extern crate byteorder;
 
-pub mod learning_switch;
+pub mod inspect_controller;
 
 mod bits;
 pub mod ofp_controller;
